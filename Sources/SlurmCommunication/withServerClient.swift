@@ -1,6 +1,18 @@
 import Foundation
 import Subprocess
 
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#elseif canImport(WinSDK)
+import WinSDK
+#else
+#error("Unsupported platform")
+#endif
+
 internal func _getIDAndNodes() async -> (id: Int, nodes: [String]) {
     let env = ProcessInfo.processInfo.environment
     guard let procStr = env["SLURM_PROCID"],
@@ -35,12 +47,11 @@ internal final class ThreadExecutor: TaskExecutor {
 ///   - workerFunction: Function that will run for the worker nodes
 public func withServerClient(serverFunction: @Sendable @escaping (sending Server) async -> Void, workerFunction: @Sendable @escaping (Client) async -> Void) async {
     let env = ProcessInfo.processInfo.environment
-    let portString = env["HPC_MANAGEMENT_PORT"] ?? "25566"
-    let port = UInt16(portString) ?? 25566
+    let portString = env["HPC_MANAGEMENT_PORT"] ?? "25565"
+    let port = UInt16(portString) ?? 25565
     let (id, nodes) = await _getIDAndNodes()
 
     let resolvedAddresses = nodes.map { resolve(host: $0, port: port) }
-    print(resolvedAddresses)
     let isServer = (id == 0)
     let serverAddress = resolvedAddresses[0][0]
     let executor = ThreadExecutor()
@@ -56,9 +67,15 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                     var yes: Int32 = 1
                     setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout.size(ofValue: yes)))
                     var v6Only: Int32 = 0
+                    #if canImport(WinSDK)
+                    if setsockopt(listenSocket, .init(IPPROTO_IPV6.rawValue), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
+                        print("Failed to set ipv6_v6only")
+                    }
+                    #else
                     if setsockopt(listenSocket, .init(IPPROTO_IPV6), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
                         print("Failed to set ipv6_v6only")
                     }
+                    #endif
                     var localAddress = sockaddr_in6()
                     localAddress.sin6_family = .init(AF_INET6)
                     localAddress.sin6_addr = in6addr_any
@@ -73,7 +90,6 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                         fatalError("Failed to bind server") 
                     }
                     if listen(listenSocket, 256) != 0 { fatalError("Failed to listen on server socket") }
-                    print("Listening !")
                     let server = Server(socket: listenSocket, totalWorkers: nodes.count)
                     await serverFunction(server)
                     
@@ -87,9 +103,15 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                 #endif
                 if serverAddress.family == .IPv6 {
                     var v6Only: Int32 = 0
+                    #if canImport(WinSDK)
+                    if setsockopt(socket, .init(IPPROTO_IPV6.rawValue), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
+                        print("Failed to set ipv6_v6only")
+                    }
+                    #else
                     if setsockopt(socket, .init(IPPROTO_IPV6), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
                         print("Failed to set ipv6_v6only")
                     }
+                    #endif
                     var localAddress = sockaddr_in6()
                     localAddress.sin6_family = .init(AF_INET6)
                     localAddress.sin6_addr = in6addr_any
@@ -106,7 +128,11 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                 } else {
                     var localAddress = sockaddr_in()
                     localAddress.sin_family = .init(AF_INET)
+                    #if canImport(WinSDK)
+                    localAddress.sin_addr.S_un.S_addr = INADDR_ANY
+                    #else
                     localAddress.sin_addr = .init(s_addr: INADDR_ANY)
+                    #endif
                     localAddress.sin_port = 0 // htons(port)
                     let bindResult = withUnsafePointer(to: localAddress) { addressPointer in 
                         addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addr in 

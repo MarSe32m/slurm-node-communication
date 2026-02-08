@@ -31,7 +31,12 @@ internal func resolve(host: String, port: UInt16) -> [ResolveAddress] {
     #else
     hints.ai_socktype = SOCK_STREAM
     #endif
+
+    #if canImport(WinSDK)
+    hints.ai_protocol = IPPROTO_TCP.rawValue
+    #else
     hints.ai_protocol = .init(IPPROTO_TCP)
+    #endif
     hints.ai_addrlen = 0
     hints.ai_addr = nil
     hints.ai_canonname = nil
@@ -64,6 +69,18 @@ internal func resolve(host: String, port: UInt16) -> [ResolveAddress] {
 
         // Convert to numeric IP string
         var hostBuffer: [CChar] = .init(repeating: 0, count: Int(NI_MAXHOST))
+
+        #if canImport(WinSDK)
+        let nameInfoError = getnameinfo(
+            sa,
+            socklen_t(ai.ai_addrlen),
+            &hostBuffer,
+            DWORD(hostBuffer.count),
+            nil,
+            0,
+            NI_NUMERICHOST
+        )
+        #else
         let nameInfoError = getnameinfo(
             sa,
             socklen_t(ai.ai_addrlen),
@@ -73,6 +90,7 @@ internal func resolve(host: String, port: UInt16) -> [ResolveAddress] {
             0,
             NI_NUMERICHOST
         )
+        #endif
         guard nameInfoError == 0 else { continue }
         let ipString = hostBuffer.withUnsafeBufferPointer { buffer in 
             buffer.withMemoryRebound(to: UInt8.self) { buffer in 
