@@ -26,8 +26,12 @@ internal func resolve(host: String, port: UInt16) -> [ResolveAddress] {
     var hints = addrinfo()
     hints.ai_flags = AI_ADDRCONFIG
     hints.ai_family = AF_UNSPEC
+    #if canImport(Glibc)
+    hints.ai_socktype = .init(SOCK_STREAM.rawValue)
+    #else
     hints.ai_socktype = SOCK_STREAM
-    hints.ai_protocol = IPPROTO_TCP
+    #endif
+    hints.ai_protocol = .init(IPPROTO_TCP)
     hints.ai_addrlen = 0
     hints.ai_addr = nil
     hints.ai_canonname = nil

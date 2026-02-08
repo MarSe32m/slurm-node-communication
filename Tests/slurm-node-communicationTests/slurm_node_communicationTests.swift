@@ -2,7 +2,7 @@ import Testing
 import SlurmCommunication
 
 @Test(.timeLimit(.minutes(1))) 
-func example() async throws {
+func basicUsage() async throws {
     await withServerClient(
         serverFunction: { server in 
             await withDiscardingTaskGroup { group in 

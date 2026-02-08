@@ -66,13 +66,13 @@ public final class Client: Sendable {
     }
     
     public func receive(into buffer: inout [UInt8], fillBuffer: Bool = false) -> Int {
-        _recv(socket, &buffer, buffer.count, fillBuffer ? MSG_WAITALL : 0)
+        _recv(socket, &buffer, buffer.count, fillBuffer ? .init(MSG_WAITALL) : 0)
     }
 
     //TODO: Is this correct?
     public func receive(into buffer: inout OutputRawSpan, fillBuffer: Bool = false) -> Int {
         buffer.withUnsafeMutableBytes { (buf, initilizedCapacity) in 
-            let bytesReceived = _recv(socket, buf.baseAddress, buf.count - initilizedCapacity, fillBuffer ? MSG_WAITALL : 0)
+            let bytesReceived = _recv(socket, buf.baseAddress, buf.count - initilizedCapacity, fillBuffer ? .init(MSG_WAITALL) : 0)
             if bytesReceived < 0 { return bytesReceived }
             initilizedCapacity += bytesReceived
             return bytesReceived
@@ -81,7 +81,7 @@ public final class Client: Sendable {
 
     public func receive(into buffer: inout MutableRawSpan, fillBuffer: Bool = false) -> Int {
         buffer.withUnsafeMutableBytes { buffer in 
-            _recv(socket, buffer.baseAddress, buffer.count, fillBuffer ? MSG_WAITALL : 0)
+            _recv(socket, buffer.baseAddress, buffer.count, fillBuffer ? .init(MSG_WAITALL) : 0)
         }
     }
 

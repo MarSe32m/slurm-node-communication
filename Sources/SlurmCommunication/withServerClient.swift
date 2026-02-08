@@ -40,6 +40,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
     let (id, nodes) = await _getIDAndNodes()
 
     let resolvedAddresses = nodes.map { resolve(host: $0, port: port) }
+    print(resolvedAddresses)
     let isServer = (id == 0)
     let serverAddress = resolvedAddresses[0][0]
     let executor = ThreadExecutor()
@@ -47,11 +48,15 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
         await withDiscardingTaskGroup { group in 
             if isServer {
                 group.addTask {
+                    #if canImport(Glibc)
+                    let listenSocket = socket(AF_INET6, .init(SOCK_STREAM.rawValue), 0)
+                    #else
                     let listenSocket = socket(AF_INET6, SOCK_STREAM, 0)
+                    #endif
                     var yes: Int32 = 1
                     setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout.size(ofValue: yes)))
                     var v6Only: Int32 = 0
-                    if setsockopt(listenSocket, IPPROTO_IPV6, IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
+                    if setsockopt(listenSocket, .init(IPPROTO_IPV6), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
                         print("Failed to set ipv6_v6only")
                     }
                     var localAddress = sockaddr_in6()
@@ -68,30 +73,52 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                         fatalError("Failed to bind server") 
                     }
                     if listen(listenSocket, 256) != 0 { fatalError("Failed to listen on server socket") }
+                    print("Listening !")
                     let server = Server(socket: listenSocket, totalWorkers: nodes.count)
                     await serverFunction(server)
                     
                 }
             }
             group.addTask {
-                let socket = socket(AF_INET6, SOCK_STREAM, 0)
-                var v6Only: Int32 = 0
-                if setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
-                    print("Failed to set ipv6_v6only")
-                }
-                var localAddress = sockaddr_in6()
-                localAddress.sin6_family = .init(AF_INET6)
-                localAddress.sin6_addr = in6addr_any
-                localAddress.sin6_port = 0 // htons(port)
-                let bindResult = withUnsafePointer(to: localAddress) { addressPointer in 
-                    addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addr in 
-                        bind(socket, addr, socklen_t(MemoryLayout.size(ofValue: localAddress)))
+                #if canImport(Glibc)
+                let socket = socket(serverAddress.family == .IPv4 ? AF_INET : AF_INET6, .init(SOCK_STREAM.rawValue), 0)
+                #else
+                let socket = socket(serverAddress.family == .IPv4 ? AF_INET : AF_INET6, SOCK_STREAM, 0)
+                #endif
+                if serverAddress.family == .IPv6 {
+                    var v6Only: Int32 = 0
+                    if setsockopt(socket, .init(IPPROTO_IPV6), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
+                        print("Failed to set ipv6_v6only")
+                    }
+                    var localAddress = sockaddr_in6()
+                    localAddress.sin6_family = .init(AF_INET6)
+                    localAddress.sin6_addr = in6addr_any
+                    localAddress.sin6_port = 0 // htons(port)
+                    let bindResult = withUnsafePointer(to: localAddress) { addressPointer in 
+                        addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addr in 
+                            bind(socket, addr, socklen_t(MemoryLayout.size(ofValue: localAddress)))
+                        }
+                    }
+                    if bindResult < 0 { 
+                        print(errno)
+                        fatalError("Failed to bind worker") 
+                    }
+                } else {
+                    var localAddress = sockaddr_in()
+                    localAddress.sin_family = .init(AF_INET)
+                    localAddress.sin_addr = .init(s_addr: INADDR_ANY)
+                    localAddress.sin_port = 0 // htons(port)
+                    let bindResult = withUnsafePointer(to: localAddress) { addressPointer in 
+                        addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addr in 
+                            bind(socket, addr, socklen_t(MemoryLayout.size(ofValue: localAddress)))
+                        }
+                    }
+                    if bindResult < 0 { 
+                        print(errno)
+                        fatalError("Failed to bind worker") 
                     }
                 }
-                if bindResult < 0 { 
-                    print(errno)
-                    fatalError("Failed to bind worker") 
-                }
+                
                 let connectionStart = ContinuousClock.now
                 var connected = false
                 while .now - connectionStart < .seconds(120) && !connected {
@@ -102,6 +129,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                     }
                     connected = connectResult == 0
                     try? await Task.sleep(for: .milliseconds(100))
+                    print(connectResult, errno)
                 }
                 if !connected { fatalError("Failed to connect to server node") }
                 let client = Client(socket: socket)
