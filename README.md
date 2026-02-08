@@ -1,2 +1,2 @@
 # slurm-node-communication
-A lightweight server–worker communication library for Slurm-based clusters.
+This library provides a simple async server–worker abstraction for communicating between nodes in a Slurm-based HPC cluster, without requiring MPI or OpenMPI.
