@@ -155,7 +155,6 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                     }
                     connected = connectResult == 0
                     try? await Task.sleep(for: .milliseconds(100))
-                    print(connectResult, errno)
                 }
                 if !connected { fatalError("Failed to connect to server node") }
                 let client = Client(socket: socket)
