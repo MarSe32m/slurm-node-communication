@@ -50,6 +50,16 @@ public final class Server: Sendable {
         return Client(socket: newSocket)
     }
 
+    public func acceptAll() -> [Client] {
+        var workerConnected = 0
+        var clients: [Client] = []
+        while workerConnected < totalWorkers, let client = accept() {
+            workerConnected += 1
+            clients.append(client)
+        }
+        return clients
+    }
+
     public func close() {
         let _ = _close(socket)
     }
@@ -63,15 +73,34 @@ public final class Client: Sendable {
         self.socket = socket
     }
 
-    public func setNonblocking(_ blocking: Bool = true) throws {
-        try setBlocking(socket, blocking: blocking)
+    //TODO: Do we want this to be configurable?
+    //public func setNonblocking(_ blocking: Bool = true) throws {
+    //    try setBlocking(socket, blocking: blocking)
+    //}
+
+    public func send(data buffer: [UInt8]) -> Bool {
+        let countBytes: [UInt8] = withUnsafeBytes(of: buffer.count) { Array($0) }
+        guard _sendAll(data: countBytes.span.bytes) else { return false }
+        return _sendAll(data: buffer.span.bytes)
     }
 
-    public func send(data buffer: [UInt8]) -> Int {
-        send(data: buffer.span.bytes)
+    internal func _sendAll(data buffer: borrowing RawSpan) -> Bool {
+        let bytesToSend = buffer.byteCount
+        var sentTotal = 0
+        while sentTotal < bytesToSend {
+            let subSpan = buffer.extracting(last: bytesToSend - sentTotal)
+            let bytesSent = __send(data: subSpan)
+            if bytesSent < 0 { 
+                sentTotal = bytesSent
+                break
+            }
+            sentTotal += bytesSent
+            if bytesSent == 0 { break }
+        }
+        return sentTotal == bytesToSend
     }
 
-    public func send(data buffer: borrowing RawSpan) -> Int {
+    public func __send(data buffer: borrowing RawSpan) -> Int {
         buffer.withUnsafeBytes { buffer in 
             #if canImport(WinSDK)
             buffer.withMemoryRebound(to: CChar.self) { buffer in 
@@ -83,7 +112,16 @@ public final class Client: Sendable {
         }
     }
     
-    public func receive(into buffer: inout [UInt8], fillBuffer: Bool = false) -> Int {
+    public func receive() -> [UInt8] {
+        var countBuffer: [UInt8] = .init(repeating: 0, count: MemoryLayout<Int>.stride)
+        guard _receive(into: &countBuffer, fillBuffer: true) == MemoryLayout<Int>.stride else { return [] }
+        let count = countBuffer.withUnsafeBytes { $0.loadUnaligned(as: Int.self) }
+        var buffer: [UInt8] = .init(repeating: 0, count: count)
+        guard _receive(into: &buffer, fillBuffer: true) == count else { return [] }
+        return buffer
+    }
+    
+    public func _receive(into buffer: inout [UInt8], fillBuffer: Bool = false) -> Int {
         #if canImport(WinSDK)
         buffer.withUnsafeMutableBytes { buffer in 
             buffer.withMemoryRebound(to: CChar.self) { buffer in 
@@ -93,34 +131,6 @@ public final class Client: Sendable {
         #else
         _recv(socket, &buffer, buffer.count, fillBuffer ? .init(MSG_WAITALL) : 0)
         #endif
-    }
-
-    //TODO: Is this correct?
-    public func receive(into buffer: inout OutputRawSpan, fillBuffer: Bool = false) -> Int {
-        buffer.withUnsafeMutableBytes { (buf, initilizedCapacity) in 
-            #if canImport(WinSDK)
-            let bytesReceived = buf.withMemoryRebound(to: CChar.self) { buffer in 
-                Int(_recv(socket, buffer.baseAddress, Int32(buffer.count - initilizedCapacity), fillBuffer ? .init(MSG_WAITALL) : 0))
-            }
-            #else
-            let bytesReceived = _recv(socket, buf.baseAddress, buf.count - initilizedCapacity, fillBuffer ? .init(MSG_WAITALL) : 0)
-            #endif
-            if bytesReceived < 0 { return bytesReceived }
-            initilizedCapacity += bytesReceived
-            return bytesReceived
-        }
-    }
-
-    public func receive(into buffer: inout MutableRawSpan, fillBuffer: Bool = false) -> Int {
-        buffer.withUnsafeMutableBytes { buffer in 
-            #if canImport(WinSDK)
-            buffer.withMemoryRebound(to: CChar.self) { buffer in 
-                Int(_recv(socket, buffer.baseAddress, Int32(buffer.count), fillBuffer ? .init(MSG_WAITALL) : 0))
-            }
-            #else
-            _recv(socket, buffer.baseAddress, buffer.count, fillBuffer ? .init(MSG_WAITALL) : 0)
-            #endif
-        }
     }
 
     public func close() {
