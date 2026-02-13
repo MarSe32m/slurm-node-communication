@@ -100,7 +100,7 @@ public final class Client: Sendable {
         return sentTotal == bytesToSend
     }
 
-    public func __send(data buffer: borrowing RawSpan) -> Int {
+    internal func __send(data buffer: borrowing RawSpan) -> Int {
         buffer.withUnsafeBytes { buffer in 
             #if canImport(WinSDK)
             buffer.withMemoryRebound(to: CChar.self) { buffer in 
@@ -114,22 +114,41 @@ public final class Client: Sendable {
     
     public func receive() -> [UInt8] {
         var countBuffer: [UInt8] = .init(repeating: 0, count: MemoryLayout<Int>.stride)
-        guard _receive(into: &countBuffer, fillBuffer: true) == MemoryLayout<Int>.stride else { return [] }
+        guard _receiveAll(into: &countBuffer) == MemoryLayout<Int>.stride else { return [] }
         let count = countBuffer.withUnsafeBytes { $0.loadUnaligned(as: Int.self) }
         var buffer: [UInt8] = .init(repeating: 0, count: count)
-        guard _receive(into: &buffer, fillBuffer: true) == count else { return [] }
+        guard _receiveAll(into: &buffer) == count else { return [] }
         return buffer
     }
     
-    public func _receive(into buffer: inout [UInt8], fillBuffer: Bool = false) -> Int {
-        #if canImport(WinSDK)
-        buffer.withUnsafeMutableBytes { buffer in 
-            buffer.withMemoryRebound(to: CChar.self) { buffer in 
-                Int(_recv(socket, buffer.baseAddress, Int32(buffer.count), 0))
+    internal func _receiveAll(into buffer: inout [UInt8]) -> Int {
+        var totalBytesReceived = 0
+        while totalBytesReceived < buffer.count {
+            let bytesReceived = buffer.withUnsafeMutableBytes { buffer in 
+                let buffer = UnsafeMutableRawBufferPointer(start: buffer.baseAddress?.advanced(by: totalBytesReceived), count: buffer.count - totalBytesReceived)
+                return _receive(into: buffer)
             }
+            if bytesReceived < 0 {
+                totalBytesReceived = bytesReceived
+                break
+            }
+            if bytesReceived == 0 { break }
+            totalBytesReceived += bytesReceived
+        }
+        return totalBytesReceived
+    }
+
+    internal func _receive(into buffer: inout [UInt8], fillBuffer: Bool = false) -> Int {
+        buffer.withUnsafeMutableBytes { _receive(into: $0) }
+    }
+
+    internal func _receive(into buffer: UnsafeMutableRawBufferPointer) -> Int {
+        #if canImport(WinSDK)
+        buffer.withMemoryRebound(to: CChar.self) { buffer in 
+            Int(_recv(socket, buffer.baseAddress, Int32(buffer.count), 0))
         }
         #else
-        _recv(socket, &buffer, buffer.count, fillBuffer ? .init(MSG_WAITALL) : 0)
+        _recv(socket, buffer.baseAddress, buffer.count, 0)
         #endif
     }
 
