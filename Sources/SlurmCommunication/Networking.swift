@@ -63,6 +63,8 @@ public final class Server: Sendable {
     public func close() {
         let _ = _close(socket)
     }
+
+    deinit { close() }
 }
 
 public final class Client: Sendable {
@@ -155,6 +157,8 @@ public final class Client: Sendable {
     public func close() {
         let _ = _close(socket)
     }
+
+    deinit { close() }
 }
 
 internal func setBlocking(_ fd: SocketHandle, blocking: Bool) throws {
