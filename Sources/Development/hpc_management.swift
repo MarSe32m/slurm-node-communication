@@ -57,6 +57,7 @@ func parameterSendingTest() async {
             print("[Server]: Server done!")
         }, 
         workerFunction: { client in 
+            print("Client:", client.id, "connected!")
             for i in 0..<10000 {
                 let buffer = client.receive()
                 precondition(buffer.count == 1 + 8)
@@ -95,6 +96,7 @@ func echoTest() async {
         }
         print("[Server] Done! Received bytes in total:", result.reduce(0, +))
     }, workerFunction: { client in 
+        print("Client:", client.id, "connected!")
         let buffer: [UInt8] = .init(repeating: 0, count: 1024)
         for iteration in 1...1_000_00 {
             if iteration % 10_000 == 0 {
@@ -125,7 +127,7 @@ struct hpc_management {
 }
 
 func serverFunc(_ server: Server) {
-    let batchSize = 10 * ProcessInfo.processInfo.activeProcessorCount
+    let batchSize = ProcessInfo.processInfo.activeProcessorCount
     let parameters: [(Int, Int)] = {
         var _parameters: [(Int, Int)] = []
         for i in 0..<1000 {
@@ -186,7 +188,8 @@ func serverFunc(_ server: Server) {
 }
 
 func workerFunc(_ client: Client) {
-    let batchSize = 10 * ProcessInfo.processInfo.activeProcessorCount
+    print("Client:", client.id, "connected!")
+    let batchSize = ProcessInfo.processInfo.activeProcessorCount
     var parameters: [(Int, Int)] = []
     outerLoop: while true {
         parameters.removeAll(keepingCapacity: true)

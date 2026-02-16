@@ -158,7 +158,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
             Thread.sleep(forTimeInterval: 0.1)
         }
         if !connected { fatalError("Failed to connect to server node") }
-        let client = Client(socket: socket)
+        let client = Client(socket: socket, id: id, sendId: true)
         workerFunction(client)
     }
 

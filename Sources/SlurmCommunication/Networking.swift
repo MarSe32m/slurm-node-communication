@@ -47,7 +47,11 @@ public final class Server: Sendable {
         #else
         if newSocket < 0 { return nil }
         #endif
-        return Client(socket: newSocket)
+        let temporaryClient = Client(socket: newSocket, id: -1, sendId: false)
+        let idData = temporaryClient.receive()
+        precondition(idData.count == MemoryLayout<Int>.stride, "Failed to receive client id")
+        let id = idData.withUnsafeBytes { $0.loadUnaligned(as: Int.self) }
+        return Client(socket: newSocket, id: id, sendId: false)
     }
 
     public func acceptAll() -> [Client] {
@@ -71,14 +75,16 @@ public final class Client: Sendable {
     @usableFromInline
     internal let socket: SocketHandle
 
-    internal init(socket: SocketHandle) {
-        self.socket = socket
-    }
+    public let id: Int
 
-    //TODO: Do we want this to be configurable?
-    //public func setNonblocking(_ blocking: Bool = true) throws {
-    //    try setBlocking(socket, blocking: blocking)
-    //}
+    internal init(socket: SocketHandle, id: Int, sendId: Bool) {
+        self.socket = socket
+        self.id = id
+        if sendId {
+            let idData: [UInt8] = withUnsafeBytes(of: id) { Array($0) }
+            precondition(send(data: idData), "Failed to send id data to server")
+        }
+    }
 
     public func send(data buffer: [UInt8]) -> Bool {
         let countBytes: [UInt8] = withUnsafeBytes(of: buffer.count) { Array($0) }
@@ -158,7 +164,11 @@ public final class Client: Sendable {
         let _ = _close(socket)
     }
 
-    deinit { close() }
+    deinit { 
+        if id >= 0 {
+            close() 
+        }
+    }
 }
 
 internal func setBlocking(_ fd: SocketHandle, blocking: Bool) throws {
