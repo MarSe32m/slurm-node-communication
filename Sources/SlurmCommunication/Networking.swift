@@ -10,6 +10,8 @@ import WinSDK
 #error("Unsupported platform")
 #endif
 
+import Foundation
+
 #if os(Linux) || canImport(Darwin)
 @usableFromInline
 internal let _accept: @convention(c) (_ socket: Int32, _ address: UnsafeMutablePointer<sockaddr>?, _ addressLength: UnsafeMutablePointer<socklen_t>?) -> Int32 = accept
@@ -38,20 +40,41 @@ public final class Server: Sendable {
     internal init(socket: SocketHandle, totalWorkers: Int) {
         self.socket = socket
         self.totalWorkers = totalWorkers
+        do {
+            try setBlocking(socket, blocking: false)
+        } catch {
+            print("Failed to set listen socket non-blocking")
+        }
     }
 
     public func accept() -> Client? {
-        let newSocket = _accept(socket, nil, nil)
-        #if canImport(WinSDK)
-        if newSocket == INVALID_SOCKET { return nil }
-        #else
-        if newSocket < 0 { return nil }
-        #endif
-        let temporaryClient = Client(socket: newSocket, id: -1, sendId: false)
-        let idData = temporaryClient.receive()
-        precondition(idData.count == MemoryLayout<Int>.stride, "Failed to receive client id")
-        let id = idData.withUnsafeBytes { $0.loadUnaligned(as: Int.self) }
-        return Client(socket: newSocket, id: id, sendId: false)
+        let timeout = Duration.seconds(10)
+        let start = ContinuousClock.now
+        while .now - start <= timeout {
+            let newSocket = _accept(socket, nil, nil)
+            #if canImport(WinSDK)
+            if newSocket == INVALID_SOCKET { 
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            #else
+            if newSocket < 0 {
+                Thread.sleep(forTimeInterval: 0.1)
+                continue 
+            }
+            #endif
+            do {
+                try setBlocking(newSocket, blocking: true)
+            } catch {
+                print("Failed to set blocking on received socket")
+            }
+            let temporaryClient = Client(socket: newSocket, id: -1, sendId: false)
+            let idData = temporaryClient.receive()
+            precondition(idData.count == MemoryLayout<Int>.stride, "Failed to receive client id")
+            let id = idData.withUnsafeBytes { $0.loadUnaligned(as: Int.self) }
+            return Client(socket: newSocket, id: id, sendId: false)
+        }
+        return nil
     }
 
     public func acceptAll() -> [Client] {

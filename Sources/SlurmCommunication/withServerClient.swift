@@ -95,6 +95,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
             serverFunction(server)
         }
     }
+    try! await Task.sleep(for: .seconds(1))
     Thread.detachNewThread {
         defer { semaphore.signal() }
         #if canImport(Glibc)
@@ -155,6 +156,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                 }
             }
             connected = connectResult == 0
+            if connected { break }
             Thread.sleep(forTimeInterval: 0.1)
         }
         if !connected { fatalError("Failed to connect to server node") }
