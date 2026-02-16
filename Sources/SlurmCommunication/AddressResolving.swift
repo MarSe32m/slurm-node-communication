@@ -112,5 +112,5 @@ internal func resolve(host: String, port: UInt16) -> [ResolveAddress] {
         )
     }
 
-    return result//.sorted { $0.family == .IPv4 && $1.family == .IPv6 }
+    return result.sorted { $0.family == .IPv4 && $1.family == .IPv6 }
 }

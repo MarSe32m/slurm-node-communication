@@ -50,45 +50,66 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
     let port = UInt16(portString) ?? 25565
     let (id, nodes) = await _getIDAndNodes()
     let numberOfTasks = _getNumberOfTasks()
-
-    let resolvedAddresses = nodes.map { resolve(host: $0, port: port) }
     let isServer = (id == 0)
-    let serverAddress = resolvedAddresses[0][0]
+    let serverAddress = resolve(host: isServer ? "127.0.0.1" : nodes[0], port: port)[0]
     let taskCount = isServer ? 2 : 1
     let semaphore = Semaphore()
     if isServer {
         Thread.detachNewThread {
             defer { semaphore.signal() }
             #if canImport(Glibc)
-            let listenSocket = socket(AF_INET6, .init(SOCK_STREAM.rawValue), 0)
+            let listenSocket = socket(serverAddress.family == .IPv4 ? AF_INET : AF_INET6, .init(SOCK_STREAM.rawValue), 0)
             #else
-            let listenSocket = socket(AF_INET6, SOCK_STREAM, 0)
+            let listenSocket = socket(serverAddress.family == .IPv4 ? AF_INET : AF_INET6, SOCK_STREAM, 0)
             #endif
             var yes: Int32 = 1
             setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout.size(ofValue: yes)))
-            var v6Only: Int32 = 0
-            #if canImport(WinSDK)
-            if setsockopt(listenSocket, .init(IPPROTO_IPV6.rawValue), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
-                print("Failed to set ipv6_v6only")
+            if serverAddress.family == .IPv6 {
+                var v6Only: Int32 = 0
+                #if canImport(WinSDK)
+                if setsockopt(listenSocket, .init(IPPROTO_IPV6.rawValue), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
+                    print("Failed to set ipv6_v6only")
+                }
+                #else
+                if setsockopt(listenSocket, .init(IPPROTO_IPV6), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
+                    print("Failed to set ipv6_v6only")
+                }
+                #endif
             }
-            #else
-            if setsockopt(listenSocket, .init(IPPROTO_IPV6), IPV6_V6ONLY, &v6Only, socklen_t(MemoryLayout.size(ofValue: v6Only))) != 0 {
-                print("Failed to set ipv6_v6only")
-            }
-            #endif
-            var localAddress = sockaddr_in6()
-            localAddress.sin6_family = .init(AF_INET6)
-            localAddress.sin6_addr = in6addr_any
-            localAddress.sin6_port = port.bigEndian // htons(port)
-            let bindResult = withUnsafePointer(to: localAddress) { addressPointer in 
-                addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addr in 
-                    bind(listenSocket, addr, socklen_t(MemoryLayout.size(ofValue: localAddress)))
+            if serverAddress.family == .IPv4 {
+                var localAddress = sockaddr_in()
+                localAddress.sin_family = .init(AF_INET)
+                #if canImport(WinSDK)
+                localAddress.sin_addr.S_un.S_addr = INADDR_ANY
+                #else
+                localAddress.sin_addr.s_addr = INADDR_ANY
+                #endif
+                localAddress.sin_port = port.bigEndian // htons(port)
+                let bindResult = withUnsafePointer(to: localAddress) { addressPointer in 
+                    addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addr in 
+                        bind(listenSocket, addr, socklen_t(MemoryLayout.size(ofValue: localAddress)))
+                    }
+                }
+                if bindResult < 0 { 
+                    print(bindResult, errno)
+                    fatalError("Failed to bind server") 
+                }
+            } else {
+                var localAddress = sockaddr_in6()
+                localAddress.sin6_family = .init(AF_INET6)
+                localAddress.sin6_addr = in6addr_any
+                localAddress.sin6_port = port.bigEndian // htons(port)
+                let bindResult = withUnsafePointer(to: localAddress) { addressPointer in 
+                    addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addr in 
+                        bind(listenSocket, addr, socklen_t(MemoryLayout.size(ofValue: localAddress)))
+                    }
+                }
+                if bindResult < 0 { 
+                    print(bindResult, errno)
+                    fatalError("Failed to bind server") 
                 }
             }
-            if bindResult < 0 { 
-                print(bindResult, errno)
-                fatalError("Failed to bind server") 
-            }
+            
             if listen(listenSocket, .init(numberOfTasks)) != 0 { fatalError("Failed to listen on server socket") }
             let server = Server(socket: listenSocket, totalWorkers: numberOfTasks)
             serverFunction(server)
