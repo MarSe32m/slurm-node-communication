@@ -56,7 +56,6 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
     let serverAddress = resolvedAddresses[0][0]
     let taskCount = isServer ? 2 : 1
     let semaphore = Semaphore()
-    
     if isServer {
         Thread.detachNewThread {
             defer { semaphore.signal() }
@@ -97,6 +96,9 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
     }
     try! await Task.sleep(for: .seconds(1))
     Thread.detachNewThread {
+        if isServer {
+            print("Server worker starting to connect!")
+        }
         defer { semaphore.signal() }
         #if canImport(Glibc)
         let socket = socket(serverAddress.family == .IPv4 ? AF_INET : AF_INET6, .init(SOCK_STREAM.rawValue), 0)
