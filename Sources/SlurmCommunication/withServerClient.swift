@@ -33,6 +33,13 @@ internal func _getIDAndNodes() async -> (id: Int, nodes: [String]) {
     return (proc, nodes)
 }
 
+internal func _getNumberOfTasks() -> Int {
+    let env = ProcessInfo.processInfo.environment
+    guard let nTasks = env["SLURM_NTASKS"],
+          let numberOfTasks = Int(nTasks) else { return 1 }
+    return numberOfTasks
+}
+
 /// Run work for the server node and worker nodes. 
 /// - Parameters:
 ///   - serverFunction: Function that will run for the server node
@@ -42,6 +49,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
     let portString = env["HPC_MANAGEMENT_PORT"] ?? "25565"
     let port = UInt16(portString) ?? 25565
     let (id, nodes) = await _getIDAndNodes()
+    let numberOfTasks = _getNumberOfTasks()
 
     let resolvedAddresses = nodes.map { resolve(host: $0, port: port) }
     let isServer = (id == 0)
@@ -83,7 +91,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                 fatalError("Failed to bind server") 
             }
             if listen(listenSocket, 256) != 0 { fatalError("Failed to listen on server socket") }
-            let server = Server(socket: listenSocket, totalWorkers: nodes.count)
+            let server = Server(socket: listenSocket, totalWorkers: numberOfTasks)
             serverFunction(server)
         }
     }
