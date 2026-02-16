@@ -94,9 +94,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
             serverFunction(server)
         }
     }
-    print("Sleeping...")
-    try! await Task.sleep(for: .seconds(1))
-    print("Slept!")
+    print("Starting client thread")
     Thread.detachNewThread {
         if isServer {
             print("Server worker starting to connect!")
