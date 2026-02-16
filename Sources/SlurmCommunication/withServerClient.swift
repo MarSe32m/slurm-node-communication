@@ -90,7 +90,7 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
                 print(bindResult, errno)
                 fatalError("Failed to bind server") 
             }
-            if listen(listenSocket, 256) != 0 { fatalError("Failed to listen on server socket") }
+            if listen(listenSocket, .init(numberOfTasks)) != 0 { fatalError("Failed to listen on server socket") }
             let server = Server(socket: listenSocket, totalWorkers: numberOfTasks)
             serverFunction(server)
         }
