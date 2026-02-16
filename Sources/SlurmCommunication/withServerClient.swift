@@ -158,8 +158,14 @@ public func withServerClient(serverFunction: @Sendable @escaping (sending Server
             connected = connectResult == 0
             if connected { break }
             Thread.sleep(forTimeInterval: 0.1)
+            if isServer {
+                print("Connecting...")
+            }
         }
         if !connected { fatalError("Failed to connect to server node") }
+        if isServer {
+            print("Connected from server worker!")
+        }
         let client = Client(socket: socket, id: id, sendId: true)
         workerFunction(client)
     }
